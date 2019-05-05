@@ -1,0 +1,591 @@
+function setup()
+{
+	UI = {};
+	UI.tabs = [];
+	UI.titleLong = 'Splines';
+	UI.titleShort = 'splines';
+	UI.numFrames = 10000;
+	UI.maxFPS = 100;
+	UI.renderWidth = 800;
+	UI.renderHeight = 400;
+
+	UI.tabs.push(
+		{
+		visible: false,
+		type: `x-shader/x-fragment`,
+		title: `Fragment Program`,
+		id: `OpenGLDemoFS`,
+		initialValue: `precision highp float;
+varying vec3 fragColor;
+varying float fragCoord;
+void main() {
+  float strip = 20.0;
+  bool xb = fract(fragCoord * strip) > 0.5;
+  gl_FragColor.rgb = fragColor * (xb ? 0.5 : 1.0);
+	
+  gl_FragColor.rgb = fragColor * (xb ? 0.5 : 1.0);
+  
+  gl_FragColor.a = 1.0;
+}`,
+		description: ``,
+		wrapFunctionStart: ``,
+		wrapFunctionEnd: ``
+	});
+
+	UI.tabs.push(
+		{
+		visible: true,
+		type: `x-shader/x-vertex`,
+		title: `Vertex Program`,
+		id: `OpenGLDemoVS`,
+		initialValue: `#define SOLUTION_DE_CASTELJAU
+#define SOLUTION_OUTLINE
+#define SOLUTION_OUTLINE_G1
+#define SOLUTION_SPOTS
+
+uniform float element_idx;
+uniform float left;
+
+attribute float coord;
+varying vec3 fragColor;
+varying float fragCoord;
+uniform float time;
+vec3 hsv2rgb(vec3 c) {
+  vec4 K = vec4(1.0, 2.0 / 3.0, 1.0 / 3.0, 3.0);
+  vec3 p = abs(fract(c.xxx + K.xyz) * 6.0 - K.www);
+  return c.z * mix(K.xxx, clamp(p - K.xxx, 0.0, 1.0), c.y);
+}
+mat4 computeProjectionMatrix(float fov, float aspect, float zNear, float zFar) { 
+    float deltaZ = zFar - zNear;
+    float cotangent = cos(fov * 0.5) / sin(fov * 0.5);
+    
+    mat4 projectionMatrix;
+    projectionMatrix[0] = vec4(cotangent / aspect, 0.0, 0.0, 0.0);
+    projectionMatrix[1] = vec4(0.0, cotangent, 0.0, 0.0);
+    projectionMatrix[2] = vec4(0.0, 0.0, -(zFar + zNear) / deltaZ, -1.0);
+    projectionMatrix[3] = vec4(0.0, 0.0, -2.0 * zNear * zFar / deltaZ, 0.0);
+  
+    return projectionMatrix;
+}
+// Used to generate a simple "look-at" camera. 
+mat4 computeViewMatrix(vec3 VRP, vec3 TP, vec3 VUV) {       
+    // The VPN is pointing away from the TP. Can also be modeled the other way around.
+    vec3 VPN = VRP - TP;
+    // Generate the camera axes.
+    vec3 n = normalize(VPN);
+    vec3 u = normalize(cross(VUV, n));
+    vec3 v = normalize(cross(n, u));
+    
+    mat4 modelViewMatrix;
+	 modelViewMatrix[0] = left*vec4(u[0], v[0], n[0], 0);
+    modelViewMatrix[1] = vec4(u[1], v[1], n[1], 0);
+    modelViewMatrix[2] = vec4(u[2], v[2], n[2], 0);
+    modelViewMatrix[3] = vec4(- dot(VRP, u), - dot(VRP, v), - dot(VRP, n), 1);
+  
+    return modelViewMatrix;
+}
+vec3 linearBezier1D(vec3 y0, vec3 y1, float coord) {  
+  #ifdef SOLUTION_DE_CASTELJAU
+  // put your code here
+	//P(t) = p0(1-t) + tp1
+	return (y0*(1.0-coord)+coord*y1);
+  #else
+  return vec3(0.0, 0.0, 0.0);
+  #endif
+}
+vec3 quadraticBezier1D(vec3 y0, vec3 y1, vec3 y2, float coord) {  
+  #ifdef SOLUTION_DE_CASTELJAU
+  // put your code here
+	vec3 A = linearBezier1D(y0,y1,coord);
+	vec3 B = linearBezier1D(y1,y2,coord);
+	vec3 P = linearBezier1D(A,B,coord);
+	
+	return P;
+  #else
+  return vec3(0.0, 0.0, 0.0);
+  #endif
+}
+vec3 cubicBezier1D(vec3 y0, vec3 y1, vec3 y2, vec3 y3, float coord) {  
+  #ifdef SOLUTION_DE_CASTELJAU
+  // put your code here
+	//P0, P1, P2 for A
+	vec3 A = quadraticBezier1D(y0, y1, y2, coord);
+	//P1, P2, P3 for B
+	vec3 B = quadraticBezier1D(y1, y2, y3, coord);
+	// P on line AB
+	vec3 P = linearBezier1D(A, B, coord);
+	
+	return P;
+  #else
+  return vec3(0.0, 0.0, 0.0);
+  #endif
+}
+vec3 quarticBezier1D(vec3 y0, vec3 y1, vec3 y2, vec3 y3, vec3 y4, float coord) {  
+  #ifdef SOLUTION_DE_CASTELJAU
+  // put your code here
+	//A defined by P0, P1, P2, P3
+	vec3 A = cubicBezier1D(y0, y1, y2, y3, coord);
+	//B defined by P1, P2, P3, P4
+	vec3 B = cubicBezier1D(y1, y2, y3, y4, coord);
+	//P defined by A, B
+	vec3 P = linearBezier1D(A, B, coord);
+	
+	return P;
+  #else
+  return vec3(0.0, 0.0, 0.0);
+  #endif
+}
+vec3 quinticBezier1D(vec3 y0, vec3 y1, vec3 y2, vec3 y3, vec3 y4, vec3 y5, float coord) {  
+  #ifdef SOLUTION_DE_CASTELJAU
+  // put your code here
+	//A defined by P0, P1, P2, P3, P4
+	vec3 A = quarticBezier1D(y0, y1, y2, y3, y4, coord);
+	//B defined by P1, P2, P3, P4, P5
+	vec3 B = quarticBezier1D(y1, y2, y3, y4, y5, coord);
+	//P defined by A, B
+	vec3 P = linearBezier1D(A, B, coord);
+	
+	return P;
+
+  #else
+  return vec3(0.0, 0.0, 0.0);
+  #endif
+}
+vec3 sexticBezier1D(vec3 y0, vec3 y1, vec3 y2, vec3 y3, vec3 y4, vec3 y5, vec3 y6, float coord) {  
+  #ifdef SOLUTION_DE_CASTELJAU
+  // put your code here
+	
+	//A defined by P0, P1, P2, P3, P4, P5
+	vec3 A = quinticBezier1D(y0, y1, y2, y3, y4, y5, coord);
+	//B defined by P1, P2, P3, P4, P5, P6
+	vec3 B = quinticBezier1D(y1, y2, y3, y4, y5, y6, coord);
+	//P defined by A, B
+	vec3 P = linearBezier1D(A, B, coord);
+	
+	return P;
+  #else
+  return vec3(0.0, 0.0, 0.0);
+  #endif
+}
+vec3 septicBezier1D(vec3 y0, vec3 y1, vec3 y2, vec3 y3, vec3 y4, vec3 y5, vec3 y6, vec3 y7, float coord) {  
+  #ifdef SOLUTION_DE_CASTELJAU
+  // put your code here
+	
+	//A defined by P0, P1, P2, P3, P4, P5, P6
+	vec3 A = sexticBezier1D(y0, y1, y2, y3, y4, y5, y6, coord);
+	//B defined by P1, P2, P3, P4, P5, P6, P7
+	vec3 B = sexticBezier1D(y1, y2, y3, y4, y5, y6, y7, coord);
+	//P defined by A, B
+	vec3 P = linearBezier1D(A, B, coord);
+	
+	return P;
+	
+  #else
+  return vec3(0.0, 0.0, 0.0);
+  #endif
+}
+
+vec3 createOutline(const float coord) {
+  vec3 cp[25];
+  cp[0] = vec3(0.0,0.2861,0.0);
+  cp[1] = vec3(-0.024843,0.286072,0.0);
+  cp[2] = vec3(-0.078544,0.097519,0.0);
+  cp[3] = vec3(-0.104240,0.068146,0.0);
+  cp[4] = vec3(-0.163855,0.000000,0.0);
+  cp[5] = vec3(-0.237873,0.019290,0.0);
+  cp[6] = vec3(-0.308851,0.070699,0.0);
+  cp[7] = vec3(-0.373387,0.117443,0.0);
+  cp[8] = vec3(-0.450749,0.220935,0.0);
+  cp[9] = vec3(-0.407830,0.303048,0.0);
+  cp[10] = vec3(-0.373392,0.368937,0.0);
+  cp[11] = vec3(-0.266283,0.402792,0.0);
+  cp[12] = vec3(-0.201575,0.419100,0.0);
+  cp[13] = vec3(-0.327433,0.408588,0.0);
+  cp[14] = vec3(-0.416736,0.403000,0.0);
+  cp[15] = vec3(-0.447241,0.537507,0.0);
+  cp[16] = vec3(-0.458375,0.586597,0.0);
+  cp[17] = vec3(-0.464963,0.630227,0.0);
+  cp[18] = vec3(-0.483701,0.677174,0.0);
+  cp[19] = vec3(-0.495162,0.705888,0.0);
+  cp[20] = vec3(-0.544062,0.777377,0.0);
+  cp[21] = vec3(-0.527718,0.811812,0.0);
+  cp[22] = vec3(-0.438397,1.000000,0.0);
+  cp[23] = vec3(-0.060168,0.520334,0.0);
+  cp[24] = vec3(-0.022714,0.452637,0.0);
+  
+
+  int seg_count = 8;
+  int seg_ind = int(min(float(seg_count), floor(coord*float(seg_count))));
+  float local_coord = coord * float(seg_count) - float(seg_ind);
+
+  #ifdef SOLUTION_OUTLINE_G1
+  // put your code here
+	
+	if (seg_ind == 0)    	  return cubicBezier1D( cp[0], cp[1], cp[2], cp[3], local_coord);
+  	else if (seg_ind == 1)    return cubicBezier1D( cp[3], cp[4], cp[5], cp[6], local_coord);
+  	else if (seg_ind == 2)    return cubicBezier1D(cp[6], cp[7], cp[8], cp[9], local_coord);
+  	else if (seg_ind == 3)    //Split the third segment
+	{  //first part of seg 3
+		local_coord *= 0.5;
+		return sexticBezier1D(cp[9], cp[10],cp[11],cp[12],cp[13],cp[14],cp[15],local_coord);
+	}
+   else if (seg_ind == 4) 	 {
+	   //second part of seg_3
+	   local_coord = coord * float(seg_count) - 3.0;
+	   local_coord = 0.5*local_coord;
+	   return sexticBezier1D(cp[9], cp[10],cp[11],cp[12],cp[13],cp[14],cp[15],local_coord);	
+	}
+	else if (seg_ind == 5)	  {
+		return cubicBezier1D(cp[15], cp[16], cp[17], cp[18], local_coord);	
+	}
+	else if (seg_ind == 6) {
+		return cubicBezier1D(cp[18],cp[19], cp[20], cp[21], local_coord);
+	}
+	else{
+		return cubicBezier1D(cp[21], cp[22], cp[23], cp[24], local_coord);
+	}
+
+	
+	
+	
+  #else
+  #ifdef SOLUTION_OUTLINE
+  // put your code here
+	//group them using cubic Bezier
+	if (seg_ind == 0)    	  return cubicBezier1D( cp[0], cp[1], cp[2], cp[3], local_coord);
+  	else if (seg_ind == 1)    return cubicBezier1D( cp[3], cp[4], cp[5], cp[6], local_coord);
+  	else if (seg_ind == 2)    return cubicBezier1D(cp[6], cp[7], cp[8], cp[9], local_coord);
+  	else if (seg_ind == 3)    return cubicBezier1D(cp[9], cp[10], cp[11], cp[12], local_coord);
+	else if (seg_ind == 4)	  return cubicBezier1D(cp[12], cp[13], cp[14], cp[15], local_coord);
+	else if (seg_ind == 5)	  return cubicBezier1D(cp[15], cp[16], cp[17], cp[18], local_coord);
+	else if (seg_ind == 6) 	  return cubicBezier1D(cp[18],cp[19], cp[20], cp[21], local_coord);
+	else if (seg_ind == 7)	  return cubicBezier1D(cp[21], cp[22], cp[23], cp[24], local_coord);
+  #else
+  return vec3(0.0, 0.0, 0.0);
+  #endif // SOLUTION_OUTLINE
+	
+	
+	
+	
+  #endif // SOLUTION_OUTLINE_G1
+}
+
+vec3 createSpot(const float coord) {
+  vec3 cp[12];
+  cp[0] = vec3(-0.246849,0.653297,0.0);
+  cp[1] = vec3(-0.192073,0.601874,0.0);
+  cp[2] = vec3(-0.166362,0.541509,0.0);
+  cp[3] = vec3(-0.183130,0.524740,0.0);
+  cp[9] = vec3(-0.394410,0.712545,0.0);
+  
+  cp[6] = vec3(-0.35, 0.55,0.0);
+	
+  cp[10] = vec3(-0.378760,0.727077,0.0);
+  cp[11] = vec3(-0.301626,0.704720,0.0);
+
+  #ifdef SOLUTION_SPOTS
+  // put your code here
+	//Make sure the derivative at each point are equal
+	//3*(cp[3]-cp[2]) = 3*(cp[4]-cp[3]);
+  cp[4] = cp[3]-cp[2]+cp[3];
+	//3*(cp[10]-cp[9]) = 3*(cp[9]-cp[8]);
+  cp[8] =cp[9] - (cp[10]-cp[9]);
+  //the tangent at point 6 matches the tangent at point 0
+  //3*(cp[1]-cp[0]) = 3*(cp[5]-cp[6]);
+  cp[5] = cp[1]-cp[0]+cp[6];
+	//3*(cp[6]-cp[5]) = 3*(cp[7]-cp[6]);
+  cp[7] = cp[6]-cp[5]+cp[6];
+  
+
+	
+  #else
+  cp[4] = cp[3];
+  cp[5] = cp[4];
+  cp[7] = cp[6];
+  cp[8] = cp[9];
+  #endif
+
+	
+  int seg_count = 4;
+  int seg_ind = int(min(float(seg_count), floor(coord*float(seg_count))));
+  float local_coord = coord * float(seg_count) - float(seg_ind);
+	
+  if (seg_ind == 0)    return cubicBezier1D(cp[0], cp[1], cp[2], cp[3], local_coord);
+  else if (seg_ind == 1)    return cubicBezier1D(cp[3], cp[4], cp[5], cp[6], local_coord);
+  else if (seg_ind == 2)    return cubicBezier1D(cp[6], cp[7], cp[8], cp[9], local_coord);
+  else if (seg_ind == 3)    return cubicBezier1D(cp[9], cp[10], cp[11], cp[0], local_coord);
+	
+	
+	
+}
+
+void main(void) {
+  vec3 TP = vec3(0, 0.5, 0);
+  vec3 VRP = 1.8 * vec3(sin(time), 0.5, cos(time));
+  vec3 VUV = vec3(0, 1, 0); 
+  mat4 viewMatrix = computeViewMatrix(VRP, TP, VUV); 
+  
+  mat4 projectionMatrix = computeProjectionMatrix(0.6, 2.0, 0.5, 100.0);  
+  
+  if (element_idx < 0.5)
+	gl_Position = projectionMatrix * viewMatrix * vec4(createOutline(coord), 1.0);
+  else
+	gl_Position = projectionMatrix * viewMatrix * vec4(createSpot(coord), 1.0);
+	
+  fragColor = hsv2rgb(vec3(2.0 * coord, 1, 1));
+  fragCoord = coord;
+}`,
+		description: ``,
+		wrapFunctionStart: ``,
+		wrapFunctionEnd: ``
+	});
+
+	UI.tabs.push(
+		{
+		visible: false,
+		type: `x-shader/x-vertex`,
+		title: `Point Vertex Program`,
+		id: `PointVS`,
+		initialValue: `uniform float left;
+
+attribute vec2 coord;
+uniform float time;
+
+mat4 computeProjectionMatrix(float fov, float aspect, float zNear, float zFar) { 
+    float deltaZ = zFar - zNear;
+    float cotangent = cos(fov * 0.5) / sin(fov * 0.5);
+    
+    mat4 projectionMatrix;
+    projectionMatrix[0] = vec4(cotangent / aspect, 0.0, 0.0, 0.0);
+    projectionMatrix[1] = vec4(0.0, cotangent, 0.0, 0.0);
+    projectionMatrix[2] = vec4(0.0, 0.0, -(zFar + zNear) / deltaZ, -1.0);
+    projectionMatrix[3] = vec4(0.0, 0.0, -2.0 * zNear * zFar / deltaZ, 0.0);
+  
+    return projectionMatrix;
+}
+// Used to generate a simple "look-at" camera. 
+mat4 computeViewMatrix(vec3 VRP, vec3 TP, vec3 VUV) {       
+    // The VPN is pointing away from the TP. Can also be modeled the other way around.
+    vec3 VPN = VRP - TP;
+    // Generate the camera axes.
+    vec3 n = normalize(VPN);
+    vec3 u = normalize(cross(VUV, n));
+    vec3 v = normalize(cross(n, u));
+    
+    mat4 modelViewMatrix;
+	modelViewMatrix[0] = left*vec4(u[0], v[0], n[0], 0);
+    modelViewMatrix[1] = vec4(u[1], v[1], n[1], 0);
+    modelViewMatrix[2] = vec4(u[2], v[2], n[2], 0);
+    modelViewMatrix[3] = vec4(- dot(VRP, u), - dot(VRP, v), - dot(VRP, n), 1);
+  
+    return modelViewMatrix;
+}
+
+void main(void) {
+  gl_PointSize = 5.0;
+
+  vec3 TP = vec3(0, 0.5, 0);
+  vec3 VRP = 1.8 * vec3(sin(time), 0.5, cos(time));
+  vec3 VUV = vec3(0, 1, 0); 
+  mat4 viewMatrix = computeViewMatrix(VRP, TP, VUV); 
+  
+  mat4 projectionMatrix = computeProjectionMatrix(0.6, 2.0, 0.5, 100.0);  
+  
+  gl_Position = projectionMatrix * viewMatrix * vec4(coord, 0.0, 1.0);
+  gl_Position.z += 0.01; // small offset so the control points are always drawn behind the spline
+}`,
+		description: ``,
+		wrapFunctionStart: ``,
+		wrapFunctionEnd: ``
+	});
+
+	UI.tabs.push(
+		{
+		visible: false,
+		type: `x-shader/x-fragment`,
+		title: `Point Fragment Program`,
+		id: `PointFS`,
+		initialValue: `precision highp float;
+void main() {
+  gl_FragColor = vec4(0.6, 0.4, 0.4, 1.0);
+}`,
+		description: ``,
+		wrapFunctionStart: ``,
+		wrapFunctionEnd: ``
+	});
+
+	UI.tabs.push(
+		{
+		visible: false,
+		type: `text/javascript`,
+		title: `OpenGL`,
+		id: `DemoJS`,
+		initialValue: `var resolution = 1000;
+function getVertices() {
+  var result = new Float32Array(resolution);
+  for(i = 0; i < resolution; i++) {
+   result[i] = i/resolution;
+  }
+  
+  return result;
+}
+
+var butterfly_control_points = [0.0, 0.286100, -0.024843, 0.286072, -0.078544, 0.097519, -0.104240, 0.068146, -0.163855, 0.000000,  -0.237873, 0.019290,  -0.308851, 0.070699,  -0.373387, 0.117443,  -0.450749, 0.220935,  -0.407830, 0.303048,  -0.373392, 0.368937,  -0.266283, 0.402792,  -0.201575, 0.419100,  -0.327433, 0.408588,  -0.416736, 0.403000,  -0.447241, 0.537507,  -0.458375, 0.586597,  -0.464963, 0.630227,  -0.483701, 0.677174,  -0.495162, 0.705888,  -0.544062, 0.777377,  -0.527718, 0.811812,  -0.438397, 1.000000,  -0.060168, 0.520334,  -0.022714, 0.452637, -0.192073, 0.601874, -0.166362, 0.541509, -0.183130, 0.524740, -0.35, 0.55, -0.394410, 0.712545, -0.378760, 0.727077, -0.301626, 0.704720, -0.246849, 0.653297, -0.192073, 0.601874]
+
+function loadShaders() {
+  shaderProgram_spline = gl.createProgram();
+  gl.attachShader(shaderProgram_spline, getShader(gl, "OpenGLDemoVS"));
+  gl.attachShader(shaderProgram_spline, getShader(gl, "OpenGLDemoFS"));
+  gl.linkProgram(shaderProgram_spline);
+  if (!gl.getProgramParameter(shaderProgram_spline, gl.LINK_STATUS)) {
+    alert("Could not initialise shaders");
+  }
+	
+  shaderProgram_cpoint = gl.createProgram();
+  gl.attachShader(shaderProgram_cpoint, getShader(gl, "PointVS"));
+  gl.attachShader(shaderProgram_cpoint, getShader(gl, "PointFS"));
+  gl.linkProgram(shaderProgram_cpoint);
+  if (!gl.getProgramParameter(shaderProgram_cpoint, gl.LINK_STATUS)) {
+    alert("Could not initialise shaders");
+  }
+}
+
+function loadGeometry() {
+  // Positions
+  positionBuffer_splines = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer_splines);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(getVertices()), gl.STATIC_DRAW);
+	
+  positionBuffer_cpoints = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer_cpoints);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(butterfly_control_points), gl.STATIC_DRAW);
+}
+function draw_clear() {
+  	gl.clearColor(0.3, 0.3, 0.3, 1.0);
+	gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);	
+}
+
+var anim_time = getTime();
+function draw_splines(left) {  
+	gl.useProgram(shaderProgram_spline);	
+  gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer_splines);
+  var positionAttributeLocation = gl.getAttribLocation(shaderProgram_spline, "coord");
+  gl.enableVertexAttribArray(positionAttributeLocation);
+  gl.vertexAttribPointer(positionAttributeLocation, 1, gl.FLOAT, false,  0,   0);
+  
+
+  gl.enable(gl.DEPTH_TEST);
+  gl.disable(gl.CULL_FACE);
+  gl.uniform1f(gl.getUniformLocation(shaderProgram_spline, "time"), anim_time);
+  gl.uniform1f(gl.getUniformLocation(shaderProgram_spline, "left"), left);
+  gl.uniform1f(gl.getUniformLocation(shaderProgram_spline, "element_idx"), 0.0);  
+  gl.drawArrays(gl.LINE_STRIP, 0, resolution);
+  gl.uniform1f(gl.getUniformLocation(shaderProgram_spline, "element_idx"), 1.0);  
+  gl.drawArrays(gl.LINE_STRIP, 0, resolution);
+}
+function draw_cpoints(left) { 
+  gl.useProgram(shaderProgram_cpoint);
+  gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer_cpoints);
+  var positionAttributeLocation = gl.getAttribLocation(shaderProgram_cpoint, "coord");
+  gl.enableVertexAttribArray(positionAttributeLocation);
+  gl.vertexAttribPointer(positionAttributeLocation, 2, gl.FLOAT, false,  0,   0);
+  
+  gl.uniform1f(gl.getUniformLocation(shaderProgram_cpoint, "time"), anim_time);
+  gl.uniform1f(gl.getUniformLocation(shaderProgram_cpoint, "left"), left);
+	
+  gl.drawArrays(gl.LINE_STRIP, 0, 25);
+  gl.drawArrays(gl.LINE_STRIP, 25, 3);
+  gl.drawArrays(gl.LINE_STRIP, 29, 5);
+	
+  gl.drawArrays(gl.POINTS, 0, 25);
+  gl.drawArrays(gl.POINTS, 25, 3);
+  gl.drawArrays(gl.POINTS, 28, 1);
+  gl.drawArrays(gl.POINTS, 29, 5);
+}
+
+if(hasCodeChanged()) {
+  // Initialization
+  loadShaders();
+  loadGeometry();
+}
+
+draw_clear();
+draw_cpoints(1.0);
+draw_cpoints(-1.0);
+draw_splines(1.0);
+draw_splines(-1.0);
+`,
+		description: ``,
+		wrapFunctionStart: ``,
+		wrapFunctionEnd: ``
+	});
+
+	 return UI; 
+}//!setup
+var gl;
+function initGL(canvas) {
+  try {
+    gl = canvas.getContext("webgl");
+    gl.viewportWidth = canvas.width;
+    gl.viewportHeight = canvas.height;
+  } catch (e) {
+  }
+  if (!gl) {
+    alert("Could not initialise WebGL, sorry :-(");
+  }
+}
+function getShader(gl, id) {
+  var shaderScript = document.getElementById(id);
+  if (!shaderScript) {
+    return null;
+  }
+  var str = "";
+  var k = shaderScript.firstChild;
+  while (k) {
+    if (k.nodeType == 3) {
+      str += k.textContent;
+    }
+    k = k.nextSibling;
+  }
+  var shader;
+  if (shaderScript.type == "x-shader/x-fragment") {
+    shader = gl.createShader(gl.FRAGMENT_SHADER);
+  } else if (shaderScript.type == "x-shader/x-vertex") {
+    shader = gl.createShader(gl.VERTEX_SHADER);
+  } else {
+    return null;
+  }
+  gl.shaderSource(shader, str);
+  gl.compileShader(shader);
+  if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+    alert(gl.getShaderInfoLog(shader));
+    return null;
+  }
+  return shader;
+}
+function evalJS(id) {
+
+  try {
+    eval(document.getElementById(id).innerHTML);
+  } catch (e) {
+    alert(e.message);
+  }
+}
+
+var shaderProgram_spline;
+var shaderProgram_cpoint;
+var positionBuffer_splines;
+var positionBuffer_cpoints;
+
+var count = 0;
+function getTime() {
+  var d = new Date();
+  return d.getMinutes() * 60.0 + d.getSeconds() + d.getMilliseconds() / 1000.0;
+}
+function init() {
+  loadShaders();
+  loadGeometry();
+}
+function compute(canvas) {
+  evalJS("DemoJS");
+}
